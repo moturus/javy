@@ -1,9 +1,9 @@
+#[cfg(target_os = "motor")]
+extern crate motor_javy_cxx_tls;
 mod commands;
 mod js_config;
 mod option;
 mod plugin;
-#[cfg(feature = "profiler")]
-mod profiler;
 
 use crate::commands::{Cli, Command, EmitPluginCommandOpts};
 use anyhow::Result;
@@ -17,9 +17,13 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    javy_motor_engine::block_on(async_main())
+}
+
+async fn async_main() -> Result<()> {
     let args = Cli::parse();
+    javy_motor_engine::check_authority()?;
 
     match &args.command {
         Command::EmitPlugin(opts) => emit_plugin(opts),
@@ -63,8 +67,6 @@ async fn main() -> Result<()> {
             fs::write(&opts.output, wasm)?;
             Ok(())
         }
-        #[cfg(feature = "profiler")]
-        Command::Profile(cmd) => profiler::run(cmd).await,
         Command::InitPlugin(opts) => {
             let plugin_bytes = fs::read(&opts.plugin)?;
             let uninitialized_plugin = UninitializedPlugin::new(&plugin_bytes)?;

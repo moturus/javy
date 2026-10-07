@@ -1,7 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use serde::Deserialize;
 use std::{collections::HashMap, str};
-use wasmtime::{AsContext, AsContextMut, Engine, Linker};
 
 use crate::{CliPlugin, PluginKind};
 
@@ -16,26 +15,8 @@ impl ConfigSchema {
         match cli_plugin.kind {
             PluginKind::User => Ok(None),
             PluginKind::Default => {
-                let engine = Engine::default();
-                let module = wasmtime::Module::new(&engine, cli_plugin.as_plugin().as_bytes())?;
-                let mut linker = Linker::new(&engine);
-                let mut store = wasmtime::Store::new(&engine, ());
-                linker.define_unknown_imports_as_default_values(&mut store, &module)?;
-                let instance = linker.instantiate(store.as_context_mut(), &module)?;
-
-                let ret_area = instance
-                    .get_typed_func::<(), i32>(store.as_context_mut(), "config-schema")?
-                    .call(store.as_context_mut(), ())?;
-                let memory = instance
-                    .get_memory(store.as_context_mut(), "memory")
-                    .ok_or_else(|| anyhow!("Missing memory export"))?;
-                let mut buf = [0; 8];
-                memory.read(store.as_context(), ret_area as usize, &mut buf)?;
-                let offset = u32::from_le_bytes(buf[0..4].try_into().unwrap());
-                let len = u32::from_le_bytes(buf[4..8].try_into().unwrap());
-                let mut config_json = vec![0; len as usize];
-                memory.read(store.as_context(), offset as usize, &mut config_json)?;
-
+                let config_json =
+                    javy_motor_engine::config_schema(cli_plugin.as_plugin().as_bytes())?;
                 let config_schema = serde_json::from_slice::<ConfigSchema>(&config_json)?;
                 let mut configs = Vec::with_capacity(config_schema.supported_properties.len());
                 for config in config_schema.supported_properties {
