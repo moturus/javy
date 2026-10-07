@@ -1,0 +1,22 @@
+[package]
+name = "motor-javy-tests"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[dependencies]
+anyhow = "1"
+javy-motor-engine = { path = "../crates/motor-engine" }
+wasmi = { path = "../../wasmi/crates/wasmi", default-features = false, features = ["std", "simd", "wat"] }
+[target.'cfg(target_os = "motor")'.dependencies]
+moto-sys = { path = "../../motor-os/src/sys/lib/moto-sys" }
+motor-javy-cxx-tls = { path = "../crates/motor-cxx-tls" }
+[patch.crates-io]
+wasmi = { path = "../../wasmi/crates/wasmi" }
+wasmi_core = { path = "../../wasmi/crates/core" }
+wasmi_ir = { path = "../../wasmi/crates/ir" }
+wasmtime-wizer = { path = "../../wasmtime/crates/wizer" }
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1
+strip = true
