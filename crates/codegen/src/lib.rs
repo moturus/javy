@@ -73,8 +73,6 @@
 //!   unstable API's exposed by this future may break in the future without
 //!   notice.
 
-use std::fs;
-
 pub(crate) mod bytecode;
 pub(crate) mod exports;
 pub(crate) mod transform;
@@ -92,12 +90,10 @@ use transform::SourceCodeSection;
 use walrus::{
     DataId, DataKind, ExportItem, FunctionBuilder, FunctionId, LocalId, MemoryId, Module, ValType,
 };
-use wasm_opt::{OptimizationOptions, ShrinkLevel};
-use wasmtime::{Engine, Linker, Store};
-use wasmtime_wasi::{WasiCtxBuilder, p2::pipe::MemoryInputPipe};
 
 use anyhow::Result;
-use wasmtime_wizer::Wizer;
+use std::fs;
+use wasm_opt::{OptimizationOptions, ShrinkLevel};
 
 /// The kind of linking to use.
 #[derive(Debug, Clone, Default)]
@@ -234,28 +230,13 @@ impl Generator {
         let config = transform::module_config();
         let module = match &self.linking {
             LinkingKind::Static => {
-                let engine = Engine::default();
-                let mut builder = WasiCtxBuilder::new();
-                builder
-                    .stdin(MemoryInputPipe::new(self.js_runtime_config.clone()))
-                    .inherit_stdout()
-                    .inherit_stderr();
-                if self.deterministic {
-                    deterministic_wasi_ctx::add_determinism_to_wasi_ctx_builder(&mut builder);
-                }
-                let wasi = builder.build_p1();
-                let mut store = Store::new(&engine, wasi);
-                let wasm = Wizer::new()
-                    .init_func("initialize-runtime")
-                    .run(&mut store, self.plugin.as_bytes(), async |store, module| {
-                        let engine = store.engine();
-                        let mut linker = Linker::new(engine);
-                        wasmtime_wasi::p1::add_to_linker_async(&mut linker, |cx| cx)?;
-                        linker.define_unknown_imports_as_traps(module)?;
-                        let instance = linker.instantiate_async(store, module).await?;
-                        Ok(instance)
-                    })
-                    .await?;
+                let wasm = javy_motor_engine::initialize(
+                    self.plugin.as_bytes(),
+                    self.js_runtime_config.clone(),
+                    self.deterministic,
+                    false,
+                )
+                .await?;
                 config.parse(&wasm)?
             }
             LinkingKind::Dynamic => Module::with_config(config),
@@ -327,10 +308,9 @@ impl Generator {
     fn generate_main(
         &self,
         module: &mut Module,
-        js: &js::JS,
+        bytecode: Vec<u8>,
         imports: &Identifiers,
     ) -> Result<BytecodeMetadata> {
-        let bytecode = bytecode::compile_source(&self.plugin, js.as_bytes())?;
         let bytecode_len: i32 = bytecode.len().try_into()?;
         let bytecode_data = module.data.add(DataKind::Passive, bytecode);
 
@@ -423,7 +403,7 @@ impl Generator {
     }
 
     /// Clean-up the generated Wasm.
-    fn postprocess(&self, module: &mut Module) -> Result<Vec<u8>> {
+    fn postprocess(&self, mut module: Module) -> Result<Vec<u8>> {
         match self.linking {
             LinkingKind::Static => {
                 // Remove no longer necessary exports.
@@ -435,6 +415,7 @@ impl Generator {
                 let tempfile_path = tempdir.path().join("temp.wasm");
 
                 module.emit_wasm_file(&tempfile_path)?;
+                drop(module);
 
                 OptimizationOptions::new_opt_level_3() // Aggressively optimize for speed.
                     .shrink_level(ShrinkLevel::Level0) // Don't optimize for size at the expense of performance.
@@ -457,9 +438,17 @@ impl Generator {
             )?;
         }
 
+        // Release the compiler VM before source compression and snapshotting.
+        let bytecode = bytecode::compile_source(&self.plugin, js.as_bytes())?;
+        let source = match self.source_embedding {
+            SourceEmbedding::Omitted => None,
+            SourceEmbedding::Uncompressed => Some(SourceCodeSection::uncompressed(js)?),
+            SourceEmbedding::Compressed => Some(SourceCodeSection::compressed(js)?),
+        };
+
         let mut module = self.generate_initial_module().await?;
         let identifiers = self.resolve_identifiers(&mut module)?;
-        let bc_metadata = self.generate_main(&mut module, js, &identifiers)?;
+        let bc_metadata = self.generate_main(&mut module, bytecode, &identifiers)?;
         self.generate_exports(&mut module, &identifiers, &bc_metadata)?;
 
         transform::add_producers_section(
@@ -468,17 +457,11 @@ impl Generator {
                 .as_deref()
                 .unwrap_or(env!("CARGO_PKG_VERSION")),
         );
-        match self.source_embedding {
-            SourceEmbedding::Omitted => {}
-            SourceEmbedding::Uncompressed => {
-                module.customs.add(SourceCodeSection::uncompressed(js)?);
-            }
-            SourceEmbedding::Compressed => {
-                module.customs.add(SourceCodeSection::compressed(js)?);
-            }
+        if let Some(source) = source {
+            module.customs.add(source);
         }
 
-        let wasm = self.postprocess(&mut module)?;
+        let wasm = self.postprocess(module)?;
         Ok(wasm)
     }
 }

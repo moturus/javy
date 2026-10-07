@@ -2,9 +2,6 @@ use anyhow::{Result, bail};
 use std::{borrow::Cow, fs};
 use walrus::{FunctionId, ImportKind, ValType};
 use wasmparser::{Parser, Payload};
-use wasmtime::{Engine, Linker, Store};
-use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wizer::Wizer;
 
 /// Extract core module if it's a component, then run wasm-opt and Wizer to
 /// initialize a plugin.
@@ -145,25 +142,5 @@ fn optimize_module(wasm_bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 async fn preinitialize_module(wasm_bytes: &[u8], deterministic: bool) -> Result<Vec<u8>> {
-    let engine = Engine::default();
-    let mut builder = WasiCtxBuilder::new();
-    builder.inherit_stderr();
-    if deterministic {
-        deterministic_wasi_ctx::add_determinism_to_wasi_ctx_builder(&mut builder);
-    }
-    let wasi = builder.build_p1();
-    let mut store = Store::new(&engine, wasi);
-
-    Ok(Wizer::new()
-        .init_func("initialize-runtime")
-        .keep_init_func(true)
-        .run(&mut store, wasm_bytes, async |store, module| {
-            let engine = store.engine();
-            let mut linker = Linker::new(engine);
-            wasmtime_wasi::p1::add_to_linker_async(&mut linker, |cx| cx)?;
-            linker.define_unknown_imports_as_traps(module)?;
-            let instance = linker.instantiate_async(store, module).await?;
-            Ok(instance)
-        })
-        .await?)
+    javy_motor_engine::initialize(wasm_bytes, vec![], deterministic, true).await
 }

@@ -15,10 +15,6 @@ plugin_internal = []
 [dependencies]
 anyhow = { workspace = true }
 brotli = { workspace = true }
-deterministic-wasi-ctx = { workspace = true }
-wasmtime = { workspace = true }
-wasmtime-wasi = { workspace = true }
-wasmtime-wizer = { workspace = true, features = ["wasmtime"] }
 walrus = { workspace = true }
 swc_core = { version = "77.1.2", features = [
   "common_sourcemap",
@@ -27,9 +23,12 @@ swc_core = { version = "77.1.2", features = [
 ] }
 wit-parser = "0.258.0"
 convert_case = "0.10.0"
+wasmparser = { workspace = true }
+
+javy-motor-engine = { path = "../motor-engine" }
+
 wasm-opt = { workspace = true }
 tempfile = { workspace = true }
-wasmparser = { workspace = true }
 
 [dev-dependencies]
 insta = "1.47.2"

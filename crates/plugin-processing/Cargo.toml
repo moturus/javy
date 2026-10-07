@@ -11,14 +11,11 @@ repository = "https://github.com/bytecodealliance/javy/tree/main/crates/plugin-p
 categories = ["wasm"]
 
 [dependencies]
-anyhow = { workspace = true }
-clap = { workspace = true }
-deterministic-wasi-ctx = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-walrus = { workspace = true }
-wasmparser = { workspace = true }
+anyhow.workspace = true
+clap.workspace = true
+walrus.workspace = true
+wasmparser.workspace = true
+javy-motor-engine = { path = "../motor-engine" }
+
 wasm-opt = { workspace = true }
-wasmtime = { workspace = true }
-wasmtime-wasi = { workspace = true }
-wasmtime-wizer = { workspace = true, features = ["wasmtime"] }
+tempfile = { workspace = true }
