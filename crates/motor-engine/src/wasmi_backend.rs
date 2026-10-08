@@ -368,6 +368,7 @@ pub fn define_host_imports(
     module: &Module,
     skip_namespace: Option<&str>,
 ) -> Result<()> {
+    let mut defined = std::collections::HashSet::new();
     for import in module.imports() {
         if skip_namespace == Some(import.module()) {
             continue;
@@ -387,6 +388,10 @@ pub fn define_host_imports(
                 expected.params(),
                 expected.results()
             );
+        }
+        // A module may import one function several times; define it once.
+        if !defined.insert((import.module(), import.name())) {
+            continue;
         }
         let namespace = import.module().to_owned();
         let name = import.name().to_owned();
