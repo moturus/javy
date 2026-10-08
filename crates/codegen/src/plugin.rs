@@ -1,7 +1,6 @@
-use anyhow::{Result, anyhow, bail};
-use std::{borrow::Cow, fs, path::Path, str};
-use walrus::{ExportItem, ValType};
-use wasmparser::Parser;
+use anyhow::{Result, bail};
+use std::{borrow::Cow, collections::HashMap, fs, path::Path, str};
+use wasmparser::{ExternalKind, FuncType, Parser, Payload, ValType, Validator, WasmFeatures};
 
 /// A Javy plugin.
 #[derive(Clone, Debug, Default)]
@@ -35,17 +34,49 @@ impl Plugin {
 
         let mut errors = vec![];
 
-        let module = walrus::Module::from_buffer(plugin_bytes)?;
+        // Validate with walrus's feature set but without building its IR, which
+        // would hold the whole plugin's functions in memory.
+        let mut features = WasmFeatures::default();
+        features.insert(WasmFeatures::LEGACY_EXCEPTIONS | WasmFeatures::WIDE_ARITHMETIC);
+        let types = Validator::new_with_features(features).validate_all(plugin_bytes)?;
+        let types = types.as_ref();
+        let mut exports = HashMap::new();
+        let mut has_import_namespace = false;
+        for payload in Parser::new(0).parse_all(plugin_bytes) {
+            match payload? {
+                Payload::ExportSection(reader) => {
+                    for export in reader {
+                        let export = export?;
+                        exports.insert(export.name, (export.kind, export.index));
+                    }
+                }
+                Payload::CustomSection(section) if section.name() == "import_namespace" => {
+                    has_import_namespace = true;
+                }
+                _ => {}
+            }
+        }
+        let exported_func = |name: &str| match exports.get(name) {
+            Some((ExternalKind::Func, index)) => {
+                Some(types[types.core_function_at(*index)].unwrap_func())
+            }
+            _ => None,
+        };
 
-        if module.exports.get_func("compile_src").is_ok() {
+        if exported_func("compile_src").is_some() {
             bail!("Could not process plugin: Using unsupported legacy plugin API");
         }
 
-        if let Err(err) = validate_exported_func(&module, "initialize-runtime", &[], &[]) {
+        if let Err(err) = validate_exported_func(
+            exported_func("initialize-runtime"),
+            "initialize-runtime",
+            &[],
+            &[],
+        ) {
             errors.push(err);
         }
         if let Err(err) = validate_exported_func(
-            &module,
+            exported_func("compile-src"),
             "compile-src",
             &[ValType::I32, ValType::I32],
             &[ValType::I32],
@@ -53,7 +84,7 @@ impl Plugin {
             errors.push(err);
         }
         if let Err(err) = validate_exported_func(
-            &module,
+            exported_func("invoke"),
             "invoke",
             &[
                 ValType::I32,
@@ -67,18 +98,10 @@ impl Plugin {
             errors.push(err);
         }
 
-        let has_memory = module
-            .exports
-            .iter()
-            .any(|export| export.name == "memory" && matches!(export.item, ExportItem::Memory(_)));
-        if !has_memory {
+        if !matches!(exports.get("memory"), Some((ExternalKind::Memory, _))) {
             errors.push("missing exported memory named `memory`".to_string());
         }
 
-        let has_import_namespace = module
-            .customs
-            .iter()
-            .any(|(_, section)| section.name() == "import_namespace");
         if !has_import_namespace {
             errors.push("missing custom section named `import_namespace`".to_string());
         }
@@ -90,36 +113,24 @@ impl Plugin {
     }
 
     pub(crate) fn import_namespace(&self) -> Result<String> {
-        let module = walrus::Module::from_buffer(&self.bytes)?;
-        let import_namespace: std::borrow::Cow<'_, [u8]> = module
-            .customs
-            .iter()
-            .find_map(|(_, section)| {
-                if section.name() == "import_namespace" {
-                    Some(section)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| anyhow!("Plugin is missing import_namespace custom section"))?
-            .data(&Default::default()); // Argument is required but not actually used for anything.
-        Ok(str::from_utf8(&import_namespace)?.to_string())
+        for payload in Parser::new(0).parse_all(&self.bytes) {
+            if let Payload::CustomSection(section) = payload?
+                && section.name() == "import_namespace"
+            {
+                return Ok(str::from_utf8(section.data())?.to_string());
+            }
+        }
+        bail!("Plugin is missing import_namespace custom section")
     }
 }
 
 fn validate_exported_func(
-    module: &walrus::Module,
+    ty: Option<&FuncType>,
     name: &str,
     expected_params: &[ValType],
     expected_results: &[ValType],
 ) -> Result<(), String> {
-    let func_id = module
-        .exports
-        .get_func(name)
-        .map_err(|_| format!("missing export for function named `{name}`"))?;
-    let function = module.funcs.get(func_id);
-    let ty_id = function.ty();
-    let ty = module.types.get(ty_id);
+    let ty = ty.ok_or_else(|| format!("missing export for function named `{name}`"))?;
     let params = ty.params();
     let has_correct_params = params == expected_params;
     let results = ty.results();
