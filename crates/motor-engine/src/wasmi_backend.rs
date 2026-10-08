@@ -13,6 +13,8 @@ pub struct Host {
     rng: Option<Pcg64Mcg>,
     dummy_imports: bool,
     limits: wasmi::StoreLimits,
+    /// Guest descriptors 0-2 that the guest has closed.
+    closed: [bool; 3],
 }
 
 impl Default for Host {
@@ -23,6 +25,7 @@ impl Default for Host {
             fuel: None,
             rng: None,
             dummy_imports: false,
+            closed: [false; 3],
             limits: wasmi::StoreLimitsBuilder::new()
                 .memory_size(96 << 20)
                 .memories(4)
@@ -210,6 +213,10 @@ fn read_input(host: &mut Host, bytes: &mut [u8]) -> std::io::Result<usize> {
     }
 }
 
+fn is_open(host: &Host, fd: usize) -> bool {
+    host.closed.get(fd) == Some(&false)
+}
+
 fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, wasmi::Error> {
     let p = |n: usize| arg(args, n);
     if name == "proc_exit" {
@@ -226,12 +233,17 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
             memory.write(&mut *caller, p(1)?, &[0; 4]).map_err(err)?;
         }
         "environ_get" | "args_get" => {}
-        "fd_close" => return Ok(if p(0)? <= 2 { 0 } else { 8 }),
+        "fd_close" | "fd_seek" | "fd_fdstat_get" | "fd_read" | "fd_write"
+            if !is_open(caller.data(), p(0)?) =>
+        {
+            return Ok(8);
+        }
+        "fd_close" => {
+            caller.data_mut().closed[p(0)?] = true;
+            return Ok(0);
+        }
         "fd_seek" => return Ok(70),
         "fd_fdstat_get" => {
-            if p(0)? > 2 {
-                return Ok(8);
-            }
             let mut stat = [0; 24];
             stat[0] = 2;
             let rights: u64 = if p(0)? == 0 { 2 } else { 64 };
