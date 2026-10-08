@@ -15,6 +15,8 @@ pub struct Host {
     limits: wasmi::StoreLimits,
     /// Guest descriptors 0-2 that the guest has closed.
     closed: [bool; 3],
+    /// Origin of the guest's monotonic clock.
+    started: std::time::Instant,
 }
 
 impl Default for Host {
@@ -26,6 +28,7 @@ impl Default for Host {
             rng: None,
             dummy_imports: false,
             closed: [false; 3],
+            started: std::time::Instant::now(),
             limits: wasmi::StoreLimitsBuilder::new()
                 .memory_size(96 << 20)
                 .memories(4)
@@ -308,13 +311,17 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
                 .map_err(err)?;
         }
         "clock_time_get" => {
-            let nanos = if caller.data().deterministic {
-                0
-            } else {
-                std::time::SystemTime::now()
+            // Realtime and monotonic, as Wasmtime: CPU-time clocks are BADF and
+            // other IDs INVAL.
+            let nanos = match p(0)? {
+                0 | 1 if caller.data().deterministic => 0,
+                0 => std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|e| wasmi::Error::new(e.to_string()))?
-                    .as_nanos() as u64
+                    .as_nanos() as u64,
+                1 => caller.data().started.elapsed().as_nanos() as u64,
+                2 | 3 => return Ok(8),
+                _ => return Ok(28),
             };
             memory
                 .write(&mut *caller, p(2)?, &nanos.to_le_bytes())
