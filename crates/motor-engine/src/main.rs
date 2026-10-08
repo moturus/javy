@@ -79,7 +79,10 @@ fn run() -> Result<()> {
     }
     for function in functions {
         let start = std::time::Instant::now();
-        let result = vm.call(function);
+        let result = vm
+            .instance
+            .get_typed_func::<(), ()>(&vm.store, function)?
+            .call(&mut vm.store, ());
         if stats {
             eprintln!(
                 "{function}: {:?}; fuel remaining {:?}",
@@ -87,7 +90,11 @@ fn run() -> Result<()> {
                 vm.store.get_fuel().ok()
             );
         }
-        result?;
+        // proc_exit ends the guest whatever its status; later invocations do not run.
+        match result {
+            Err(e) if e.i32_exit_status() == Some(0) => return Ok(()),
+            result => result?,
+        }
     }
     Ok(())
 }
