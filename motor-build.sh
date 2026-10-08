@@ -2,7 +2,8 @@
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 motor=$(cd -- "$root/../motor-os" && pwd)
-export RUSTUP_TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' "$motor/rust-toolchain.toml")
+# A caller's selection (e.g. Motor's authoring build) wins over the checked-in one.
+export RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN:-$(sed -n 's/^channel = "\(.*\)"/\1/p' "$motor/rust-toolchain.toml")}
 assembly_images=$("$motor/src/resolve-toolchain-assembly.sh" --resolve)
 assembly_sysroot=${assembly_images%/images}/sysroot
 export CC_x86_64_unknown_motor=$assembly_sysroot/bin/motor-clang
