@@ -1,13 +1,13 @@
 use anyhow::{Context, Result, bail};
 use rand_core::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
-use std::io::Write;
-use wasmi::{Caller, Engine, ExternType, Instance, Linker, Memory, Module, Store, Val};
+use std::io::{Cursor, Read, Write};
+use wasmi::{Caller, Engine, ExternType, FuncType, Instance, Linker, Memory, Module, Store, Val};
 use wasmtime_wizer::{InstanceState, SnapshotVal, ValType, Wizer};
 
 pub struct Host {
-    pub input: Vec<u8>,
-    pub input_pos: usize,
+    /// Guest stdin, read only when the guest reads descriptor 0.
+    pub input: Box<dyn Read + Send>,
     pub deterministic: bool,
     pub fuel: Option<u64>,
     rng: Option<Pcg64Mcg>,
@@ -18,8 +18,7 @@ pub struct Host {
 impl Default for Host {
     fn default() -> Self {
         Self {
-            input: Vec::new(),
-            input_pos: 0,
+            input: Box::new(Cursor::new(Vec::new())),
             deterministic: false,
             fuel: None,
             rng: None,
@@ -154,7 +153,7 @@ pub async fn initialize_named(
     let mut vm = Vm::new(
         &instrumented,
         Host {
-            input,
+            input: Box::new(Cursor::new(input)),
             deterministic,
             ..Host::default()
         },
@@ -192,10 +191,29 @@ impl InstanceState for Vm {
     }
 }
 
+/// Bytes one `fd_read` moves at most; a short read makes the guest ask again.
+const READ_CHUNK: usize = 64 << 10;
+
+fn arg(args: &[Val], n: usize) -> Result<usize, wasmi::Error> {
+    args.get(n)
+        .and_then(Val::i32)
+        .map(|v| v as u32 as usize)
+        .ok_or_else(|| wasmi::Error::new("WASI argument is not an i32"))
+}
+
+fn read_input(host: &mut Host, bytes: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match host.input.read(bytes) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
+
 fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, wasmi::Error> {
-    let p = |n: usize| args[n].i32().expect("WASI integer argument") as u32 as usize;
+    let p = |n: usize| arg(args, n);
     if name == "proc_exit" {
-        return Err(wasmi::Error::i32_exit(p(0) as i32));
+        return Err(wasmi::Error::i32_exit(p(0)? as i32));
     }
     let memory = caller
         .get_export("memory")
@@ -204,38 +222,39 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
     let err = |e: wasmi::errors::MemoryError| wasmi::Error::new(e.to_string());
     match name {
         "environ_sizes_get" | "args_sizes_get" => {
-            memory.write(&mut *caller, p(0), &[0; 4]).map_err(err)?;
-            memory.write(&mut *caller, p(1), &[0; 4]).map_err(err)?;
+            memory.write(&mut *caller, p(0)?, &[0; 4]).map_err(err)?;
+            memory.write(&mut *caller, p(1)?, &[0; 4]).map_err(err)?;
         }
         "environ_get" | "args_get" => {}
-        "fd_close" => return Ok(if p(0) <= 2 { 0 } else { 8 }),
+        "fd_close" => return Ok(if p(0)? <= 2 { 0 } else { 8 }),
         "fd_seek" => return Ok(70),
         "fd_fdstat_get" => {
-            if p(0) > 2 {
+            if p(0)? > 2 {
                 return Ok(8);
             }
             let mut stat = [0; 24];
             stat[0] = 2;
-            let rights: u64 = if p(0) == 0 { 2 } else { 64 };
+            let rights: u64 = if p(0)? == 0 { 2 } else { 64 };
             stat[8..16].copy_from_slice(&rights.to_le_bytes());
-            memory.write(&mut *caller, p(1), &stat).map_err(err)?;
+            memory.write(&mut *caller, p(1)?, &stat).map_err(err)?;
         }
         "fd_read" | "fd_write" => {
-            let fd = p(0);
+            let fd = p(0)?;
             if (name == "fd_read" && fd != 0) || (name == "fd_write" && !(1..=2).contains(&fd)) {
                 return Ok(8);
             }
             let mut total = 0u32;
-            for i in 0..p(2) {
+            for i in 0..p(2)? {
                 let mut io = [0; 8];
                 memory
                     .read(
                         &*caller,
-                        p(1).checked_add(
-                            i.checked_mul(8)
-                                .ok_or_else(|| wasmi::Error::new("iov overflow"))?,
-                        )
-                        .ok_or_else(|| wasmi::Error::new("iov overflow"))?,
+                        p(1)?
+                            .checked_add(
+                                i.checked_mul(8)
+                                    .ok_or_else(|| wasmi::Error::new("iov overflow"))?,
+                            )
+                            .ok_or_else(|| wasmi::Error::new("iov overflow"))?,
                         &mut io,
                     )
                     .map_err(err)?;
@@ -257,19 +276,23 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
                     result.map_err(|e| wasmi::Error::new(e.to_string()))?;
                     len
                 } else {
-                    let host = caller.data_mut();
-                    let count = len.min(host.input.len() - host.input_pos);
-                    let bytes = host.input[host.input_pos..host.input_pos + count].to_vec();
-                    host.input_pos += count;
-                    memory.write(&mut *caller, ptr, &bytes).map_err(err)?;
+                    let mut bytes = vec![0; len.min(READ_CHUNK)];
+                    let count = read_input(caller.data_mut(), &mut bytes)
+                        .map_err(|e| wasmi::Error::new(e.to_string()))?;
+                    memory
+                        .write(&mut *caller, ptr, &bytes[..count])
+                        .map_err(err)?;
                     count
                 };
                 total = total
                     .checked_add(count as u32)
                     .ok_or_else(|| wasmi::Error::new("iov total overflow"))?;
+                if name == "fd_read" && count < len {
+                    break;
+                }
             }
             memory
-                .write(&mut *caller, p(3), &total.to_le_bytes())
+                .write(&mut *caller, p(3)?, &total.to_le_bytes())
                 .map_err(err)?;
         }
         "clock_time_get" => {
@@ -282,17 +305,17 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
                     .as_nanos() as u64
             };
             memory
-                .write(&mut *caller, p(2), &nanos.to_le_bytes())
+                .write(&mut *caller, p(2)?, &nanos.to_le_bytes())
                 .map_err(err)?;
         }
         "random_get" => {
-            let end = p(0)
-                .checked_add(p(1))
+            let end = p(0)?
+                .checked_add(p(1)?)
                 .ok_or_else(|| wasmi::Error::new("random range overflow"))?;
             if end > memory.data_size(&*caller) {
                 return Ok(21);
             }
-            let mut bytes = vec![0; p(1)];
+            let mut bytes = vec![0; p(1)?];
             if caller.data().deterministic {
                 caller
                     .data_mut()
@@ -302,7 +325,7 @@ fn wasi(caller: &mut Caller<'_, Host>, name: &str, args: &[Val]) -> Result<i32, 
             } else {
                 fill_random(&mut bytes).map_err(|e| wasmi::Error::new(e.to_string()))?;
             }
-            memory.write(&mut *caller, p(0), &bytes).map_err(err)?;
+            memory.write(&mut *caller, p(0)?, &bytes).map_err(err)?;
         }
         _ => {
             return Err(wasmi::Error::new(format!(
@@ -321,6 +344,25 @@ fn fill_random(bytes: &mut [u8]) -> Result<()> {
     Ok(())
 }
 
+/// Types of the implemented preview1 functions; other names link and fail when called.
+fn wasi_signature(name: &str) -> Option<FuncType> {
+    use wasmi::ValType::{I32, I64};
+    let (params, results): (&[wasmi::ValType], &[wasmi::ValType]) = match name {
+        "proc_exit" => (&[I32], &[]),
+        "fd_close" => (&[I32], &[I32]),
+        "environ_sizes_get" | "args_sizes_get" | "environ_get" | "args_get" | "fd_fdstat_get"
+        | "random_get" => (&[I32, I32], &[I32]),
+        "fd_seek" => (&[I32, I64, I32, I32], &[I32]),
+        "fd_read" | "fd_write" => (&[I32, I32, I32, I32], &[I32]),
+        "clock_time_get" => (&[I32, I64, I32], &[I32]),
+        _ => return None,
+    };
+    Some(FuncType::new(
+        params.iter().copied(),
+        results.iter().copied(),
+    ))
+}
+
 pub fn define_host_imports(
     linker: &mut Linker<Host>,
     module: &Module,
@@ -333,6 +375,19 @@ pub fn define_host_imports(
         let ExternType::Func(ty) = import.ty() else {
             bail!("unsupported import {}::{}", import.module(), import.name());
         };
+        if let Some(expected) = wasi_signature(import.name())
+            .filter(|_| import.module() == "wasi_snapshot_preview1")
+            .filter(|expected| expected != ty)
+        {
+            bail!(
+                "import wasi_snapshot_preview1::{} has type {:?} -> {:?}, expected {:?} -> {:?}",
+                import.name(),
+                ty.params(),
+                ty.results(),
+                expected.params(),
+                expected.results()
+            );
+        }
         let namespace = import.module().to_owned();
         let name = import.name().to_owned();
         let results = ty.results().to_vec();

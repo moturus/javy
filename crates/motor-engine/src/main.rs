@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use javy_motor_engine::{Host, Vm};
-use std::io::Read;
 use wasmi::{Linker, Module};
 
 fn main() -> std::process::ExitCode {
@@ -54,10 +53,8 @@ fn run() -> Result<()> {
     if functions.is_empty() {
         functions.push("_start");
     }
-    let mut input = vec![];
-    std::io::stdin().read_to_end(&mut input)?;
     let mut host = Host::default();
-    host.input = input;
+    host.input = Box::new(std::io::stdin());
     host.fuel = fuel;
     let start = std::time::Instant::now();
     let mut vm = if let Some(plugin) = plugin {
