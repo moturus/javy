@@ -92,7 +92,7 @@ use walrus::{
 };
 
 use anyhow::Result;
-use std::fs;
+use std::{borrow::Cow, fs};
 use wasm_opt::{OptimizationOptions, ShrinkLevel};
 
 /// The kind of linking to use.
@@ -430,9 +430,19 @@ impl Generator {
 
     /// Generate a Wasm module which will run the provided JS source code.
     pub async fn generate(&mut self, js: &js::JS) -> Result<Vec<u8>> {
+        self.generate_from(Cow::Borrowed(js)).await
+    }
+
+    /// Like [`Generator::generate`], but frees the source code once it has
+    /// been compiled and embedded, before the module is assembled.
+    pub async fn generate_owned(&mut self, js: js::JS) -> Result<Vec<u8>> {
+        self.generate_from(Cow::Owned(js)).await
+    }
+
+    async fn generate_from(&mut self, js: Cow<'_, js::JS>) -> Result<Vec<u8>> {
         if self.wit_opts.defined() {
             self.function_exports = exports::process_exports(
-                js,
+                &js,
                 self.wit_opts.unwrap_path(),
                 self.wit_opts.unwrap_world(),
             )?;
@@ -442,9 +452,10 @@ impl Generator {
         let bytecode = bytecode::compile_source(&self.plugin, js.as_bytes())?;
         let source = match self.source_embedding {
             SourceEmbedding::Omitted => None,
-            SourceEmbedding::Uncompressed => Some(SourceCodeSection::uncompressed(js)?),
-            SourceEmbedding::Compressed => Some(SourceCodeSection::compressed(js)?),
+            SourceEmbedding::Uncompressed => Some(SourceCodeSection::uncompressed(&js)?),
+            SourceEmbedding::Compressed => Some(SourceCodeSection::compressed(&js)?),
         };
+        drop(js);
 
         let mut module = self.generate_initial_module().await?;
         let identifiers = self.resolve_identifiers(&mut module)?;

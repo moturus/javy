@@ -62,7 +62,7 @@ async fn async_main() -> Result<()> {
                 generator.linking(LinkingKind::Static);
             };
 
-            let wasm = generator.generate(&js).await?;
+            let wasm = generator.generate_owned(js).await?;
 
             fs::write(&opts.output, wasm)?;
             Ok(())
