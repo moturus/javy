@@ -16,16 +16,14 @@ mod motor {
     }
 
     pub fn backing() -> Result<()> {
-        let allocator = Arc::new(Reservations::new(96 << 20, 128 << 20, 4));
         let mut config = Config::default();
-        config.with_memory_allocator(allocator.clone());
+        config.with_memory_allocator(Arc::new(Reservations::new(96 << 20)));
         let engine = Engine::new(&config);
         let before = MemoryStats::get().unwrap().used();
         let mut store = Store::new(&engine, ());
         let memory = Memory::new(&mut store, MemoryType::new(0, Some(1536)))?;
         let pointer = memory.data_ptr(&store);
         ensure!(memory.size(&store) == 0 && memory.data_size(&store) == 0);
-        ensure!(allocator.usage() == (96 << 20, 1));
         ensure!(
             SysMem::virt_to_phys(pointer as u64).is_err(),
             "untouched reservation faulted eagerly"
@@ -36,8 +34,8 @@ mod motor {
             "lazy reservation used {reserved} physical bytes"
         );
         memory.grow(&mut store, 256)?;
-        let touched = MemoryStats::get().unwrap().used().saturating_sub(before);
-        ensure!(touched >= 16 << 20, "growth did not commit visible pages");
+        let grown = MemoryStats::get().unwrap().used().saturating_sub(before);
+        ensure!(grown < 16 << 20, "growth committed {grown} untouched bytes");
         ensure!(memory.data_ptr(&store) == pointer && memory.data(&store).iter().all(|b| *b == 0));
         memory.write(&mut store, 0, b"preserved")?;
         memory.grow(&mut store, 1)?;
@@ -46,16 +44,17 @@ mod motor {
         ensure!(memory.grow(&mut store, 1536).is_err());
         ensure!(memory.ty(&store).maximum() == Some(1536));
         drop(store);
-        ensure!(allocator.usage() == (0, 0));
-        println!("lazy backing reserve=100663296 physical={reserved} touched={touched}");
+        ensure!(
+            SysMem::virt_to_phys(pointer as u64).is_err(),
+            "mapping survived Store drop"
+        );
+        println!("lazy backing reserve=100663296 physical={reserved} grown={grown}");
 
-        let allocator = Arc::new(Reservations::new(2 << 16, 4 << 16, 2));
         let mut config = Config::default();
-        config.with_memory_allocator(allocator.clone());
+        config.with_memory_allocator(Arc::new(Reservations::new(2 << 16)));
         let engine = Engine::new(&config);
         let mut store = Store::new(&engine, ());
         ensure!(Memory::new(&mut store, MemoryType::new(3, None)).is_err());
-        ensure!(allocator.usage() == (0, 0));
         let imported = Memory::new(&mut store, MemoryType::new(1, Some(2)))?;
         let module = Module::new(
             &engine,
@@ -70,16 +69,14 @@ mod motor {
         ensure!(instance.get_memory(&store, "second").unwrap().size(&store) == 1);
         let grow = instance.get_typed_func::<(), i32>(&store, "grow")?;
         ensure!(grow.call(&mut store, ())? == -1 && imported.size(&store) == 1);
-        ensure!(Memory::new(&mut store, MemoryType::new(0, Some(1))).is_err());
         drop(store);
-        ensure!(allocator.usage() == (0, 0));
         // Real static storage retains the upstream caller-owned API semantics.
         static mut STATIC: [u8; 2 << 16] = [7; 2 << 16];
         let mut store = Store::new(&engine, ());
         let memory = Memory::new_static(&mut store, MemoryType::new(1, Some(2)), unsafe {
             &mut *std::ptr::addr_of_mut!(STATIC)
         })?;
-        ensure!(allocator.usage() == (0, 0) && memory.data(&store).iter().all(|b| *b == 0));
+        ensure!(memory.data(&store).iter().all(|b| *b == 0));
         memory.grow(&mut store, 1)?;
         ensure!(memory.data(&store).iter().all(|b| *b == 0));
         drop(store);
@@ -98,14 +95,12 @@ mod motor {
                     .is_err()
             );
             drop(store);
-            ensure!(allocator.usage() == (0, 0));
             let mut store = Store::new(&engine, ());
             let memory = Memory::new(&mut store, MemoryType::new(1, Some(2)))?;
             let address = memory.data_ptr(&store) as u64;
             memory.grow(&mut store, 1)?;
             ensure!(memory.data(&store).iter().all(|b| *b == 0));
             drop(store);
-            ensure!(allocator.usage() == (0, 0));
             ensure!(
                 SysMem::virt_to_phys(address).is_err(),
                 "mapping survived Store drop"
@@ -120,21 +115,15 @@ mod motor {
                 warm_charge = Some(current);
             }
         }
-        // Zero-memory and aggregate refusal are distinct from the count limit.
-        let allocator = Reservations::new(2 << 16, 2 << 16, 4);
-        let first = allocator.allocate(0, Some(2 << 16))?;
-        ensure!(allocator.allocate(0, Some(1 << 16)).is_err());
-        drop(first);
-        ensure!(allocator.usage() == (0, 0));
         println!(
-            "backing PASS defined imported multi static zero grow limits failed-init teardown=1024 charge={}",
+            "backing PASS defined imported multi static grow limit failed-init teardown=1024 charge={}",
             warm_charge.unwrap()
         );
         Ok(())
     }
 
     pub fn fault() -> Result<()> {
-        let allocator = Reservations::new(96 << 20, 96 << 20, 1);
+        let allocator = Reservations::new(96 << 20);
         let memory = allocator.allocate(0, Some(96 << 20))?;
         // Fill physical memory while leaving a fixed lazy reservation unfaulted.
         // Mapping admission and fault-time exhaustion are separate contracts.

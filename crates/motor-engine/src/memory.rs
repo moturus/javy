@@ -1,64 +1,38 @@
-//! Motor reservations own their mappings; Wasmi initializes only visible bytes.
-use std::sync::{Arc, Mutex, OnceLock};
+//! Motor reservations own their mappings; untouched pages read as the kernel's zeros.
 use wasmi::{MemoryAllocator, MemoryBuffer, errors::MemoryError};
 
-pub const MAX_MEMORY_BYTES: usize = 96 << 20;
-pub const MAX_RESERVED_BYTES: usize = 128 << 20;
-pub const MAX_MEMORIES: usize = 4;
+/// Largest capacity of one linear memory: a 32-bit memory's whole range.
+pub const MAX_MEMORY_BYTES: usize = 4 << 30;
 
-#[derive(Debug, Default)]
-struct Usage {
-    bytes: usize,
-    memories: usize,
-}
-
+/// Backs each memory with one sparse lazy reservation of its whole capacity,
+/// so growth never copies and only touched pages use RAM.
 #[derive(Debug)]
 pub struct Reservations {
     per_memory: usize,
-    aggregate: usize,
-    count: usize,
-    usage: Arc<Mutex<Usage>>,
+}
+
+impl Default for Reservations {
+    fn default() -> Self {
+        Self::new(MAX_MEMORY_BYTES)
+    }
 }
 
 impl Reservations {
-    pub fn new(per_memory: usize, aggregate: usize, count: usize) -> Self {
-        Self {
-            per_memory,
-            aggregate,
-            count,
-            usage: Arc::default(),
-        }
-    }
-
-    pub fn usage(&self) -> (usize, usize) {
-        let usage = self.usage.lock().unwrap();
-        (usage.bytes, usage.memories)
-    }
-
-    pub fn shared() -> Arc<Self> {
-        static ALLOCATOR: OnceLock<Arc<Reservations>> = OnceLock::new();
-        Arc::clone(ALLOCATOR.get_or_init(|| {
-            Arc::new(Self::new(
-                MAX_MEMORY_BYTES,
-                MAX_RESERVED_BYTES,
-                MAX_MEMORIES,
-            ))
-        }))
+    pub fn new(per_memory: usize) -> Self {
+        Self { per_memory }
     }
 }
 
 #[derive(Debug)]
 struct Reservation {
-    address: Option<u64>,
+    address: u64,
     capacity: usize,
-    mapped: usize,
-    usage: Arc<Mutex<Usage>>,
 }
 
-// SysMem returns exclusive, stable writable storage; only Wasmi borrows bytes.
+// SysMem returns exclusive, stable, zeroed storage; only Wasmi borrows bytes.
 unsafe impl MemoryBuffer for Reservation {
     fn data_ptr(&self) -> *mut u8 {
-        self.address.unwrap() as *mut u8
+        self.address as *mut u8
     }
     fn capacity(&self) -> usize {
         self.capacity
@@ -67,13 +41,8 @@ unsafe impl MemoryBuffer for Reservation {
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        if let Some(address) = self.address {
-            moto_sys::SysMem::unmap(moto_sys::SysHandle::SELF, 0, u64::MAX, address)
-                .expect("release Wasmi memory reservation");
-        }
-        let mut usage = self.usage.lock().unwrap();
-        usage.bytes -= self.mapped;
-        usage.memories -= 1;
+        moto_sys::SysMem::unmap(moto_sys::SysHandle::SELF, 0, u64::MAX, self.address)
+            .expect("release Wasmi memory reservation");
     }
 }
 
@@ -87,43 +56,16 @@ impl MemoryAllocator for Reservations {
         if initial > capacity || capacity > isize::MAX as usize {
             return Err(MemoryError::ResourceLimiterDeniedAllocation);
         }
-        let mapped = capacity
-            .max(1)
-            .checked_add(4095)
-            .ok_or(MemoryError::OutOfSystemMemory)?
-            & !4095;
-        {
-            let mut usage = self.usage.lock().unwrap();
-            let bytes = usage
-                .bytes
-                .checked_add(mapped)
-                .ok_or(MemoryError::OutOfSystemMemory)?;
-            if bytes > self.aggregate || usage.memories >= self.count {
-                return Err(MemoryError::ResourceLimiterDeniedAllocation);
-            }
-            usage.bytes = bytes;
-            usage.memories += 1;
-        }
-        // The lease rolls back admission if mapping fails before an address exists.
-        let mut reservation = Reservation {
-            address: None,
-            capacity,
-            mapped,
-            usage: Arc::clone(&self.usage),
-        };
-        reservation.address = Some(
-            moto_sys::SysMem::map(
-                moto_sys::SysHandle::SELF,
-                moto_sys::SysMem::F_READABLE
-                    | moto_sys::SysMem::F_WRITABLE
-                    | moto_sys::SysMem::F_LAZY,
-                u64::MAX,
-                u64::MAX,
-                moto_sys::sys_mem::PAGE_SIZE_SMALL,
-                (mapped >> 12) as u64,
-            )
-            .map_err(|_| MemoryError::OutOfSystemMemory)?,
-        );
-        Ok(Box::new(reservation))
+        let pages = capacity.max(1).div_ceil(4096) as u64;
+        let address = moto_sys::SysMem::map(
+            moto_sys::SysHandle::SELF,
+            moto_sys::SysMem::F_READABLE | moto_sys::SysMem::F_WRITABLE | moto_sys::SysMem::F_LAZY,
+            u64::MAX,
+            u64::MAX,
+            moto_sys::sys_mem::PAGE_SIZE_SMALL,
+            pages,
+        )
+        .map_err(|_| MemoryError::OutOfSystemMemory)?;
+        Ok(Box::new(Reservation { address, capacity }))
     }
 }

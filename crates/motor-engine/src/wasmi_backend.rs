@@ -30,8 +30,6 @@ impl Default for Host {
             closed: [false; 3],
             started: std::time::Instant::now(),
             limits: wasmi::StoreLimitsBuilder::new()
-                .memory_size(96 << 20)
-                .memories(4)
                 .instances(64)
                 .tables(16)
                 .table_elements(32_768)
@@ -50,7 +48,7 @@ impl Vm {
         let mut config = wasmi::Config::default();
         config.consume_fuel(host.fuel.is_some());
         #[cfg(target_os = "motor")]
-        config.with_memory_allocator(crate::memory::Reservations::shared());
+        config.with_memory_allocator(std::sync::Arc::new(crate::memory::Reservations::default()));
         let engine = Engine::new(&config);
         let module = Module::new(&engine, bytes)?;
         let mut store = Store::new(&engine, host);
