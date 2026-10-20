@@ -8,7 +8,7 @@ anyhow = "1"
 javy-motor-engine = { path = "../crates/motor-engine" }
 wasmi = { version = "=1.1.0", default-features = false, features = ["std", "simd", "wat"] }
 [target.'cfg(target_os = "motor")'.dependencies]
-moto-sys = { git = "https://github.com/moturus/motor-os", branch = "main" }
+moto-sys = "0.3.2"
 motor-javy-cxx-tls = { path = "../crates/motor-cxx-tls" }
 [patch.crates-io]
 wasmi = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }

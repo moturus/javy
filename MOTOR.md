@@ -8,17 +8,16 @@ owned by Wasmi memories and released with their store. The C++ TLS bridge stays
 local to Javy.
 
 This is branch `motor-9.1.0` of `moturus/javy`, based on upstream
-`04a467bc776b72450e660274929e0eafc8558c19`. Its Motor dependencies are git
-dependencies pinned by the checked-in lockfiles, never sibling checkouts:
+`04a467bc776b72450e660274929e0eafc8558c19`. Its Motor dependencies are the
+published `moto-rt` and `moto-sys` crates and git dependencies on the Motor
+forks below, all pinned by the checked-in lockfiles, never sibling checkouts:
 
 - `wasmi`, `wasmi_core`, `wasmi_ir`: `moturus/wasmi` branch `motor-1.1.0`,
   based on `8273dfb09d493971b7bb12fe614d740cdc857175`.
 - `wasmtime-wizer`: `moturus/wasmtime` branch `motor-48.0.1`, based on
   `7bac2c2775808aaec5d4aa5627a5e447b51102cf`; Wizer stays in that workspace.
-- `moto-rt`, `moto-sys`: `moturus/motor-os` branch `main`, one revision for
-  both. The lockfiles may pin one ahead of `main`
-  (`cargo update -p moto-rt --precise <rev>`); `cargo update -p moto-rt` moves
-  them to the branch head together.
+- `moto-rt`, `moto-sys`: crates.io (`moto-rt = "0.17"`, `moto-sys = "0.3.2"`);
+  `cargo update -p moto-rt` (or `moto-sys`) takes a newer published release.
 
 Use the checked-in lockfiles. The Motor OS tree builds the revision of this
 branch named in its `src/build-addon-sources.sh`.
