@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-motor=$(cd -- "$root/../motor-os" && pwd)
-# A caller's selection (e.g. Motor's authoring build) wins over the checked-in one.
-export RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN:-$(sed -n 's/^channel = "\(.*\)"/\1/p' "$motor/rust-toolchain.toml")}
-assembly_images=$("$motor/src/resolve-toolchain-assembly.sh" --resolve)
-assembly_sysroot=${assembly_images%/images}/sysroot
-export CC_x86_64_unknown_motor=$assembly_sysroot/bin/motor-clang
-export CXX_x86_64_unknown_motor=$assembly_sysroot/bin/motor-clang++
+# The Motor OS build exports the selected toolchain and its assembly's sysroot
+# (src/build-motor-os.sh). Stand-alone: RUSTUP_TOOLCHAIN is the channel in the
+# Motor OS checkout's rust-toolchain.toml, and MOTOR_SYSROOT is the `sysroot`
+# directory beside the `images` directory that its
+# src/resolve-toolchain-assembly.sh --resolve prints.
+: "${RUSTUP_TOOLCHAIN:?set RUSTUP_TOOLCHAIN to the selected Motor Rust toolchain}"
+: "${MOTOR_SYSROOT:?set MOTOR_SYSROOT to the Motor toolchain assembly sysroot}"
+export RUSTUP_TOOLCHAIN
+export CC_x86_64_unknown_motor=$MOTOR_SYSROOT/bin/motor-clang
+export CXX_x86_64_unknown_motor=$MOTOR_SYSROOT/bin/motor-clang++
 export CXXSTDLIB_x86_64_unknown_motor=c++
-export CARGO_TARGET_X86_64_UNKNOWN_MOTOR_LINKER=$assembly_sysroot/bin/motor-clang++
+export CARGO_TARGET_X86_64_UNKNOWN_MOTOR_LINKER=$MOTOR_SYSROOT/bin/motor-clang++
 export CARGO_TARGET_X86_64_UNKNOWN_MOTOR_RUSTFLAGS='-C link-self-contained=no -C default-linker-libraries=yes -C link-arg=-lc++'
 export JAVY_DEFAULT_PLUGIN=${JAVY_DEFAULT_PLUGIN:-$root/target/motor-inputs/plugin.wasm}
 printf '180230f9346dc4b7d7139791280c9f4da09b2292eef751a3d35ae80154d88350  %s\n' "$JAVY_DEFAULT_PLUGIN" | sha256sum -c -

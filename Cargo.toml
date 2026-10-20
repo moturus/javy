@@ -52,7 +52,7 @@ strip = true
 opt-level = 3
 
 [patch.crates-io]
-wasmi = { path = "../wasmi/crates/wasmi" }
-wasmi_core = { path = "../wasmi/crates/core" }
-wasmi_ir = { path = "../wasmi/crates/ir" }
-wasmtime-wizer = { path = "../wasmtime/crates/wizer" }
+wasmi = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmi_core = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmi_ir = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmtime-wizer = { git = "https://github.com/moturus/wasmtime", branch = "motor-48.0.1" }

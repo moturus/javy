@@ -7,17 +7,21 @@ lifetimes are separated to limit peak memory. Motor memory reservations are
 owned by Wasmi memories and released with their store. The C++ TLS bridge stays
 local to Javy.
 
-Check out the repositories as siblings:
+This is branch `motor-9.1.0` of `moturus/javy`, based on upstream
+`04a467bc776b72450e660274929e0eafc8558c19`. Its Motor dependencies are git
+dependencies pinned by the checked-in lockfiles, never sibling checkouts:
 
-- `javy`: `motor-9.1.0`, based on `04a467bc776b72450e660274929e0eafc8558c19`.
-- `wasmi`: `motor-1.1.0`, based on `8273dfb09d493971b7bb12fe614d740cdc857175`.
-- `wasmtime`: `motor-48.0.1`, based on `7bac2c2775808aaec5d4aa5627a5e447b51102cf`.
-- `motor-os`: provides the selected toolchain assembly and unchanged native crates.
+- `wasmi`, `wasmi_core`, `wasmi_ir`: `moturus/wasmi` branch `motor-1.1.0`,
+  based on `8273dfb09d493971b7bb12fe614d740cdc857175`.
+- `wasmtime-wizer`: `moturus/wasmtime` branch `motor-48.0.1`, based on
+  `7bac2c2775808aaec5d4aa5627a5e447b51102cf`; Wizer stays in that workspace.
+- `moto-rt`, `moto-sys`: `moturus/motor-os` branch `main`, one revision for
+  both. The lockfiles may pin one ahead of `main`
+  (`cargo update -p moto-rt --precise <rev>`); `cargo update -p moto-rt` moves
+  them to the branch head together.
 
-The manifests use these relative workspace paths. Wasmi core/IR are in Wasmi's
-workspace; Wizer is in Wasmtime's workspace. No source dependency is under `/tmp`.
-Use the checked-in lockfiles. The local Motor branches must be published and
-pinned before integration into Motor's normal image build.
+Use the checked-in lockfiles. The Motor OS tree builds the revision of this
+branch named in its `src/build-addon-sources.sh`.
 
 Prepare the default plugin once, from the upstream Javy 9.1.0 release:
 
@@ -31,13 +35,16 @@ gzip -dc target/motor-inputs/plugin.wasm.gz > target/motor-inputs/plugin.wasm
 ./motor-build.sh
 ```
 
-The build script additionally verifies the decompressed plugin digest and uses
-Motor's selected Rust and C++ toolchains. `JAVY_DEFAULT_PLUGIN` can select another
+The build script additionally verifies the decompressed plugin digest. It needs
+`RUSTUP_TOOLCHAIN` set to the Motor Rust toolchain and `MOTOR_SYSROOT` to its
+assembly's sysroot (the `sysroot` directory beside the `images` directory that
+Motor OS's `src/resolve-toolchain-assembly.sh --resolve` prints); Motor OS's
+`src/build-motor-os.sh` exports both. `JAVY_DEFAULT_PLUGIN` can select another
 copy of this same verified input; `CARGO_TARGET_DIR` selects disk-backed output.
 The build does not download the plugin. `JOBS` defaults to two.
 
-Run `./motor-test.sh` for Wasmi's ownership/branch regressions and no-std check,
-then build the native memory/TLS test crate. On Motor, run `motor-javy-tests backing` and `motor-javy-tests tls`
+Run `./motor-test.sh` (same `RUSTUP_TOOLCHAIN`) to build the native memory/TLS
+test crate; Wasmi's own regressions run in its checkout with its `motor-test.sh`. On Motor, run `motor-javy-tests backing` and `motor-javy-tests tls`
 with `MOTOR_OS_CAPS=0`; its tests use native reservations and thread destructors.
 Run `javy build input.js -o output.wasm`, then `wasmi output.wasm`. Dynamic output
 uses `javy build -C dynamic=y -C plugin=plugin.wasm` and `wasmi output.wasm --plugin plugin.wasm`.

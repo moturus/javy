@@ -121,11 +121,13 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "moto-rt"
-version = "0.17.9"
+version = "0.17.8"
+source = "git+https://github.com/moturus/motor-os?branch=main#fc48f27dce02ed2f4e29dcd00d5a2df0b3775586"
 
 [[package]]
 name = "moto-sys"
 version = "0.3.1"
+source = "git+https://github.com/moturus/motor-os?branch=main#fc48f27dce02ed2f4e29dcd00d5a2df0b3775586"
 dependencies = [
  "moto-rt",
 ]
@@ -293,6 +295,7 @@ dependencies = [
 [[package]]
 name = "wasmi"
 version = "1.1.0"
+source = "git+https://github.com/moturus/wasmi?branch=motor-1.1.0#55bc21a5cd463943feab67526eb91c1a2038b1fd"
 dependencies = [
  "spin",
  "wasmi_collections",
@@ -305,6 +308,7 @@ dependencies = [
 [[package]]
 name = "wasmi_collections"
 version = "1.1.0"
+source = "git+https://github.com/moturus/wasmi?branch=motor-1.1.0#55bc21a5cd463943feab67526eb91c1a2038b1fd"
 dependencies = [
  "string-interner",
 ]
@@ -312,6 +316,7 @@ dependencies = [
 [[package]]
 name = "wasmi_core"
 version = "1.1.0"
+source = "git+https://github.com/moturus/wasmi?branch=motor-1.1.0#55bc21a5cd463943feab67526eb91c1a2038b1fd"
 dependencies = [
  "libm",
 ]
@@ -319,6 +324,7 @@ dependencies = [
 [[package]]
 name = "wasmi_ir"
 version = "1.1.0"
+source = "git+https://github.com/moturus/wasmi?branch=motor-1.1.0#55bc21a5cd463943feab67526eb91c1a2038b1fd"
 dependencies = [
  "wasmi_core",
 ]
@@ -357,6 +363,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wizer"
 version = "48.0.1"
+source = "git+https://github.com/moturus/wasmtime?branch=motor-48.0.1#fda311d08cf93052a1af34f50f96271d1ad1b556"
 dependencies = [
  "anyhow",
  "log",

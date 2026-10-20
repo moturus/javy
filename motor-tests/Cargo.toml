@@ -6,15 +6,15 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 javy-motor-engine = { path = "../crates/motor-engine" }
-wasmi = { path = "../../wasmi/crates/wasmi", default-features = false, features = ["std", "simd", "wat"] }
+wasmi = { version = "=1.1.0", default-features = false, features = ["std", "simd", "wat"] }
 [target.'cfg(target_os = "motor")'.dependencies]
-moto-sys = { path = "../../motor-os/src/sys/lib/moto-sys" }
+moto-sys = { git = "https://github.com/moturus/motor-os", branch = "main" }
 motor-javy-cxx-tls = { path = "../crates/motor-cxx-tls" }
 [patch.crates-io]
-wasmi = { path = "../../wasmi/crates/wasmi" }
-wasmi_core = { path = "../../wasmi/crates/core" }
-wasmi_ir = { path = "../../wasmi/crates/ir" }
-wasmtime-wizer = { path = "../../wasmtime/crates/wizer" }
+wasmi = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmi_core = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmi_ir = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
+wasmtime-wizer = { git = "https://github.com/moturus/wasmtime", branch = "motor-48.0.1" }
 [profile.release]
 panic = "abort"
 lto = "fat"
