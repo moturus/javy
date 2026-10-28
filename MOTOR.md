@@ -23,6 +23,12 @@ forks below, all pinned by the checked-in lockfiles, never sibling checkouts:
 Use the checked-in lockfiles. The Motor OS tree builds the revision of this
 branch named in its `src/build-scripts/external-sources.sh`.
 
+The upstream experimental JavaScript profiler is removed from this branch,
+including its helper library and disconnected CLI code. It was not part of
+the installed tools; removing it also removes `whamm` and its Wasmtime v47
+dependencies. Javy compilation, plugin initialization and Wasmi execution
+continue to use the dependencies above.
+
 Prepare the default plugin once, from the upstream Javy 9.1.0 release:
 
 ```sh

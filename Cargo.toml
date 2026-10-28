@@ -13,8 +13,6 @@ members = [
   "crates/runner",
   "fuzz",
   "release",
-  "crates/profiler-lib",
-  "crates/profiler",
   "crates/motor-engine",
   "crates/motor-cxx-tls",
 ]

@@ -36,9 +36,6 @@ jobs:
       - name: Build test plugins
         run: make build-test-plugins
 
-      - name: Build feature assets
-        run: make build-all-feature-assets
-
       - name: Upload plugins
         uses: actions/upload-artifact@v7
         with:
