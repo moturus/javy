@@ -14,7 +14,7 @@ motor-javy-cxx-tls = { path = "../crates/motor-cxx-tls" }
 wasmi = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
 wasmi_core = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
 wasmi_ir = { git = "https://github.com/moturus/wasmi", branch = "motor-1.1.0" }
-wasmtime-wizer = { git = "https://github.com/moturus/wasmtime", branch = "motor-48.0.1" }
+wasmtime-wizer = { git = "https://github.com/moturus/wasmtime", branch = "motor-50.0.0" }
 [profile.release]
 panic = "abort"
 lto = "fat"

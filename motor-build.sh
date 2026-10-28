@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-# The Motor OS build exports the selected toolchain and its assembly's sysroot
+# The Motor OS build exports the selected toolchain and its sysroot
 # (src/build-motor-os.sh). Stand-alone: RUSTUP_TOOLCHAIN is the channel in the
-# Motor OS checkout's rust-toolchain.toml, and MOTOR_SYSROOT is the `sysroot`
-# directory beside the `images` directory that its
-# src/resolve-toolchain-assembly.sh --resolve prints.
+# Motor OS checkout's rust-toolchain.toml, and MOTOR_SYSROOT is
+# $(rustc --print sysroot)/lib/rustlib/x86_64-unknown-motor/sysroot.
 : "${RUSTUP_TOOLCHAIN:?set RUSTUP_TOOLCHAIN to the selected Motor Rust toolchain}"
 : "${MOTOR_SYSROOT:?set MOTOR_SYSROOT to the Motor toolchain assembly sysroot}"
 export RUSTUP_TOOLCHAIN
