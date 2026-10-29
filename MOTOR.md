@@ -56,7 +56,9 @@ Run `javy build input.js -o output.wasm`, then `wasmi output.wasm`. Dynamic outp
 uses `javy build -C dynamic=y -C plugin=plugin.wasm` and `wasmi output.wasm --plugin plugin.wasm`.
 Use `MOTOR_OS_CAPS=0x200` for compilation and a scratch directory writable
 by role None (`chmod rwxrwxrwx PATH` in the Motor shell).
-Tool processes require role None with only the required filesystem/network bits.
+All workflows also run as Interactive or System, with the caller's ordinary
+capabilities and filesystem permissions. The masks above select a minimal
+None-role process; they are optional.
 
 Brotli remains upstream. Its use of `f32::log2` can select different compressed
 source encodings with Rust's bundled libm and Linux glibc. The prototype's

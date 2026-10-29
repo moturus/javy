@@ -30,7 +30,6 @@ fn run() -> Result<()> {
         println!("wasmi 1.1.0 (Motor)");
         return Ok(());
     }
-    javy_motor_engine::check_authority()?;
     let bytes = std::fs::read(args.get(1).context("expected module path")?)?;
     let mut plugin = None;
     let mut namespace = "javy-default-plugin-v4";

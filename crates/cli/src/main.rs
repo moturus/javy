@@ -23,7 +23,6 @@ fn main() -> Result<()> {
 
 async fn async_main() -> Result<()> {
     let args = Cli::parse();
-    javy_motor_engine::check_authority()?;
 
     match &args.command {
         Command::EmitPlugin(opts) => emit_plugin(opts),

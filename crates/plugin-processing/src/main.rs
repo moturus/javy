@@ -25,7 +25,6 @@ fn main() -> Result<()> {
 
 async fn async_main() -> Result<()> {
     let args = Args::parse();
-    javy_motor_engine::check_authority()?;
     let wasm_bytes = fs::read(&args.input)?;
     let wasm_bytes = if args.deterministic {
         javy_plugin_processing::initialize_plugin_with_determinism(&wasm_bytes).await?

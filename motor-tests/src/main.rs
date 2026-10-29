@@ -145,7 +145,6 @@ mod motor {
 }
 
 fn main() -> anyhow::Result<()> {
-    javy_motor_engine::check_authority()?;
     #[cfg(target_os = "motor")]
     match std::env::args().nth(1).as_deref() {
         Some("backing") => motor::backing(),
